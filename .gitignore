@@ -1,0 +1,21 @@
+/*
+
+!.gitignore
+
+# 3. РАЗРЕШАЕМ конкретные папки с вашими решениями
+# (Замените названия на ваши папки!)
+!UniFile/
+!Lab2/
+!Zad5/
+!FirstTask/
+!SecondTask/
+
+.vs/
+Debug/
+Release/
+x64/
+
+*.sln
+*.csproj
+*.config
+*.user
