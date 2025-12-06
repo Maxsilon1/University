@@ -6,6 +6,16 @@
 #include <queue>
 #include <deque>
 
+template<typename T, class Container = vector<T>>
+class Stack
+{
+private:
+	Container data;
+
+public:
+	Stack() {}
+};
+
 //Аллокатор используется косвенно
 template<class T, class Container = std::vector<T>, class Comparator = std::less<T>>
 class Heap
@@ -170,13 +180,16 @@ public:
 	}
 };
 
-template<class T, class Allocator = std::allocator<T>>
+template<class T, class Alloc = std::allocator<T>>
 class vector
 {
 private:
 	T* arr_;
 	size_t cap_;
 	size_t size_;
+	Alloc alloc_;
+
+	using AllocTraits = std::allocator_traits<Alloc>;
 public:
 	vector() {}
 	vector(size_t sz): size_(sz) {}
@@ -211,11 +224,46 @@ private:
 	using const_iterator = base_iterator<true>;
 public:
 
-	void push_back(const T& tmp) noexcept
+	vector& operator=(const vector& other) noexcept
+	{
+		Alloc newalloc_ = AllocTraits::propagate_on_container_copy_assigment::value ? other.alloc_ : alloc_;
+		T* newarr = AllocTraits::allocate(newalloc_, other.cap_);
+		size_t i = 0;
+		try
+		{
+			for (; i < other.sz; ++i)
+				AllocTraits::construct(newalloc_, newarr + i, other[i]);
+			
+		} catch (...)
+		{
+				for (size_t j = 0; j < i; ++j)
+					AllocTraits::deallocate(newalloc_, newarr + j, other.cap_);
+				throw;
+		}
+
+		for (i = 0; i < size_; ++i)
+		{
+			AllocTraits::destroy(alloc_, arr_ + i);
+
+		}
+		AllocTraits::deallocate(alloc_, arr_ + i);
+
+		alloc_ = newalloc_;
+		arr_ = newarr;
+		size_ = other.size_;
+		cap_ = other.cap_;
+	}
+
+	void push_back(const T& tmp)
 	{
 		if (size_ == cap_)
 		{
 			reserve(cap_ > 0 ? cap_ * 2 : 1);
+			arr_[size_++] = tmp;
+		}
+		else
+		{
+			arr_[size_++] = tmp;
 		}
 	}
 	void push_back(T&& tmp) noexcept
@@ -223,33 +271,62 @@ public:
 		if (size_ == cap_)
 		{
 			reserve(cap_ > 0 ? cap_ * 2 : 1);
+			arr_[size_] = std::move(tmp);
+			size_++;
+		}
+		else
+		{
+			arr_[size_ - 1] = std::move(tmp);
+			size_++;
 		}
 	}
-	void reserve(size_t _newcap)
+	void reserve(size_t newcap)
 	{
-		if (_newcap < _cap)
+		if (newcap < cap_)
 			return;
 
-		T* newarr;
+		T* newarr = AllocTraits::allocate(alloc_, newcap);//operator new();
 		size_t idx = 0;
 		try
 		{
 			for (; idx < size_; ++idx)
 			{
-				new(newarr + ind) T(arr_[ind]);
+				AllocTraits::construct(alloc_, newarr, std::move_if_noexcept(arr_[idx]));//new() ptr;
 			}
+
+			AllocTraits::deallocate(alloc_, newarr, newcap);
 		}
 		catch (...)
 		{
-			for (size_t old_idx; old_idx < idx; ++old_idx)
+			for (size_t old_idx = 0; old_idx < idx; ++old_idx)
 			{
-				(newarr + old_idx)->~T;
+				AllocTraits::destroy(alloc_, newarr + old_idx);
 			}
 		}
-	}
+
+		for(size_t index = 0; index < size_; ++ index)
+		{
+			alloc_.deallocate(arr_, cap_);
+		}
+
+		arr_ = newarr;
+		alloc_.deallocate(arr_, cap_);
+		cap_ = newcap;
+	}//Используем доп память, пока без move семантики
 	bool isEmpty()
 	{
 		return size_ == 0;
+	}
+
+	void remove(int idx) noexcept
+	{
+		if (idx < 0)return;
+
+		AllocTraits::deallocate(alloc_, arr_ + idx);
+	}
+	void remove(iterator& it) noexcept
+	{
+		AllocTraits::deallocate(alloc_, it);
 	}
 
 	iterator begin() { return iterator{ arr_ }; }
@@ -265,14 +342,6 @@ public:
 
 int main()
 {
-	Heap<int> smth(5);
-	int val;
-	for (int i = 0; i < 10; ++i)
-	{
-		std::cin >> val;
-		smth.push(std::move(val));
-	}
-	std::cout << smth.pool() << '\t';
-	std::cout << smth.peek() << '\n';
-	std::cout << smth.contains(5);
+	vector<int> v;
+	v.push_back(5);
 }
