@@ -1,19 +1,73 @@
 ﻿#include <iostream>
-
 #include <type_traits>
 
 #include <vector>
 #include <queue>
 #include <deque>
 
-template<typename T, class Container = vector<T>>
+template<class T, class Container = vector<T>>
 class Stack
 {
+public:
+	using value_type = T;
+	using reference = T&;
 private:
-	Container data;
-
+	Container c;
 public:
 	Stack() {}
+	Stack(std::initializer_list<int> ilist) 
+	{
+		c.reserve(ilist.size);
+		for (size_t i = 0; i < ilist.size; ++i)
+			c.push_back(ilist[i]);
+	}
+	Stack(const Stack& other) noexcept: c(other.c){}
+	Stack(Stack&& other) noexcept(std::nothrow_move_assignable_v<Container>): c(std::move(other.c))  {}//Если мув семантика контейнера не выкинет ошибку, то и наша функция этого не сделает
+
+	Stack& operator=(const Stack& other) noexcept(std::nothrow_move_assignable_v<Container>)
+	{
+		c = std::move(other.c);
+		return *this;
+	}
+
+	bool empty() const { return c.empty(); }
+	bool size() const { return c.size(); }
+
+	value_type& top() { return c.back(); }
+	const value_type& top() const { return c.back(); }
+
+	reference pool()
+	{
+		if (empty())throw std::length_error("Stack is empty");
+		value_type tmp = std::move(c.back());
+		c.pop_back();
+		return tmp;
+	}
+
+	void push(const value_type& val) { c.push_back(val); }
+	void push(value_type&& val) { c.push_back(std::move(val)); }
+	
+	void pop() { c.pop_back(); }
+
+	value_type search(const value_type& v)
+	{
+		size_t depth = size() - 1;//Если элемент является последним, то имеет глубину size() - 1, если является top, то 0
+		for(const value_type& i : c)
+		{
+			if (v == i)
+			{
+				return depth;
+			}
+			--depth;
+		}
+		return -1;
+	}
+
+	template<typename... Args>//Передаём пакет данных
+	decltype(auto) emplace(Args&&... args)
+	{
+		return c.emplace_back(std::forward<Args>(args)...);//forward<Args>(args) Смотрит на тип Args, сохраняет l/r - value переменных, а после распаковка
+	}
 };
 
 //Аллокатор используется косвенно
@@ -183,6 +237,8 @@ public:
 template<class T, class Alloc = std::allocator<T>>
 class vector
 {
+public:
+	using value_type = T;
 private:
 	T* arr_;
 	size_t cap_;
@@ -431,9 +487,15 @@ public:
 	
 	size_t size() const noexcept {return size_;}
 	size_t capacity() const noexcept{ return cap_; }
+
 	bool isEmpty()
 	{
 		return size_ == 0;
+	}
+	
+	value_type back() const noexcept
+	{
+		return arr_[size_ - 1];
 	}
 
 	void remove(int idx) noexcept
@@ -461,13 +523,52 @@ public:
 	//Нужно использовать reverse iterator
 };
 
+template<class T, class Alloc = std::allocator<T>>
+class deque
+{
+public:
+	using value_type = T;
+	using reference = T&;
+	using pointer = T*;
+private:
+	pointer* arr;//Будет хранить указатели на массивы
+
+	size_t head;
+	size_t tail;
+
+	size_t size_;
+	size_t default_arr_size_ = 30;
+	
+	Alloc alloc_;
+
+	using AllocTraits = std::allocator_traits<Alloc>;
+public:
+	deque(): arr(nullptr), head(0), tail(0), size_(0) {}
+	deque(size_t sz): arr(nullptr), head(0), tail(0), size_(0){}
+
+	void push_back()
+	{
+		if(tail % default_arr_size_== default_arr_size_ - 1)
+		{
+			resize(size_);//Увеличиваем количество подмассивов, которые будут распределяться между элементами
+		}
+	}
+	void push_front()
+	{
+		if()
+	}
+	void resize()
+	{
+
+	}
+	void reserve(size_t sz)
+	{
+
+	}
+};
 
 int main()
 {
-	std::vector<int> stl_v;
-	vector<int> v;
-	v.push_back(5);
-	v.push_back(6);
-	v.reserve(10);
-	std::cout << v;
+	std::deque<int> d; d.push_back(10); d.push_back(4);
+	std::cout << d[1];
 }
