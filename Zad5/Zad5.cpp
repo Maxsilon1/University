@@ -361,7 +361,7 @@ public:
 	friend vector& operator-(vector first, const T& second) { return first -= second; }
 	friend vector& operator-(const T& first, vector second) { return second -= first; }
 	
-	friend std::ostream& operator<<(std::ostream& os, const vector v)//У std::ostream - удален конструктор копирования, можно вызывать только по ссылке
+	friend std::ostream& operator<<(std::ostream& os, const vector& v)//У std::ostream - удален конструктор копирования, можно вызывать только по ссылке
 	{
 		os << "{";//Вводим в поток os все наши данные
 		for (size_t i = 0; i < v.size_; ++i)
