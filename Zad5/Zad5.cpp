@@ -5,12 +5,14 @@
 #include <queue>
 #include <deque>
 
+#include <list>
+
 template<class T, class Container = vector<T>>
 class Stack
 {
 public:
-	using value_type = T;
-	using reference = T&;
+	using value_type = Container::value_type;//Нужны для того, чтобы не использовать шаблоны
+	using reference = Container::reference_type;
 private:
 	Container c;
 public:
@@ -235,6 +237,195 @@ public:
 };
 
 template<class T, class Alloc = std::allocator<T>>
+class list
+{
+	struct BaseNode
+	{
+		BaseNode* prev;
+		BaseNode* next;
+
+		BaseNode(): prev(nullptr), next(nullptr) {}
+		BaseNode(BaseNode* prev, BaseNode* next): prev(prev), next(next) {}
+	};
+	struct Node: BaseNode
+	{
+		T value;
+
+		Node(): BaseNode() { value = 0; }
+		Node(T val) : BaseNode() { value = val; }
+	};
+	
+	using AllocTraits = std::allocator_traits<NodeAlloc>;
+	using NodeAlloc = typename AllocTraits::template rebind_alloc<Node>;//Что это значит???
+	using NodeAllocTraits = std::allocator_traits<NodeAlloc>;
+
+	BaseNode* fakeNode_;
+	Node* node;
+
+	size_t size_;
+
+	Alloc alloc_;
+	NodeAlloc allocNode_;
+
+	template<typename... Args>
+	void emplace_impl(Args... args, void* link(Node*))
+	{
+		Node* newNode = NodeAllocTraits::allocate(allocNode_, 1);
+		try
+		{
+			newNode = AllocTraits::construct(alloc_, newNode, std::forward(args)...);//Используем конструктор нашего дефолтного аллокатора
+
+			link(newNode);
+			++size_;
+		}
+		catch (...)
+		{
+			NodeAllocTraits::deallocate(allocNode_, newNode, 1);
+		}
+	}
+
+	void link_front(Node* newNode)
+	{
+		fakeNode_->next->prev = newNode; newNode->next = fakeNode_->prev;
+		fakeNode_->next = newNode;newNode->prev = fakeNode_;
+	}
+	void link_back(Node* newNode)
+	{
+		fakeNode_->prev->next = newNode; newNode->prev = fakeNode_->prev;
+		fakeNode_->prev = newNode;newNode->next = fakeNode_;
+	}
+public:
+	list(): fakeNode_{fakeNode_, fakeNode_}, size_(0) {}
+	explicit list(size_t sz) : fakeNode_{ fakeNode_, fakeNode_ }
+	{
+		for (size_t i = 0; i < sz; ++i)
+			push_back(T{});
+	};
+	explicit list(const list& other){}
+	
+	void push_back(const T& val)
+	{
+		emplace_impl(val, link_back);
+	}
+	void push_back(T&& val)
+	{
+		emplace_impl(std::move(val), link_back);
+	}
+
+	void push_front(const T& val)
+	{
+		emplace_impl(val, link_front);
+	}
+	void push_front(T&& val)
+	{
+		emplace_impl(std::move(val), link_front);
+	}
+
+	bool empty() 
+	{ 
+		if (&fakeNode_ != &fakeNode_)return false; 
+		return true;
+	}
+
+	void pop_back()
+	{
+
+	}
+	void pop_front()
+	{
+
+	}
+private:
+	template<bool isConst>
+	class base_iterator
+	{
+	private:
+		using iterator_category = std::bidirectional_iterator_tag;
+		using pointer = std::conditional_t<isConst, const T*, T*);
+		using reference = std::conditional_t<isConst, const T&, T&);
+		using value_type = T;
+		using difference_type = std::ptrdiff_t;
+
+		Node* ptr;
+	public:
+		base_iterator(const base_iterator&) = default;
+		base_iterator& operator=(const base_iterator&) = default;
+
+		reference& operator*() const { return *ptr; }
+		pointer operator->() const { return ptr; }
+		pointer operator&() const { return ptr; }
+
+		base_iterator& operator++()
+		{
+			ptr = ptr->next;
+			return *this;
+		}
+		base_iterator& operator++(int)
+		{
+			base_iterator tmp = ptr;
+			ptr = ptr->next;
+			return tmp;
+		}
+
+		base_iterator& operator--()
+		{
+			ptr = ptr->prev;
+			return *this;
+		}
+		base_iterator& operator--(int)
+		{
+			base_iterator tmp = *this;
+			ptr = ptr->prev;
+			return tmp;
+		}
+
+		base_iterator& operator+=(difference_type other)
+		{
+			return *this;
+		}
+		base_iterator& operator-=(difference_type other)
+		{
+			ptr -= other;
+			return *this;
+		}
+
+		friend base_iterator& operator+(const base_iterator it, difference_type dif)
+		{
+			return it += dif;
+		}
+		friend base_iterator& operator+(difference_type dif, const base_iterator it)
+		{
+			return it += dif;
+		}
+
+		friend base_iterator& operator-(const base_iterator it, base_iterator& dif)
+		{
+			return it -= dif;
+		}
+		friend base_iterator& operator-(const base_iterator it, difference_type dif)
+		{
+			return it -= dif;
+		}
+		friend base_iterator& operator-(difference_type dif, const base_iterator it)
+		{
+			return it -= dif;
+		}
+
+		bool operator==(const base_iterator& other) { return ptr == ptr; }
+		bool operator!=(const base_iterator& other) { return ptr != ptr; }
+
+		bool operator<(const base_iterator& other) { return ptr < other.ptr; }
+		bool operator>(const base_iterator& other) { return ptr > other.ptr; }
+
+		bool operator<=(const base_iterator& other) { return ptr <= other.ptr; }
+		bool operator>=(const base_iterator& other) { return ptr >= other.ptr; }
+	};
+public:
+	using iterator = base_iterator<false>;
+	using const_iterator = base_iterator<true>;
+};
+
+template<class T, class Alloc = std::allocator<T>>
 class vector
 {
 public:
@@ -328,11 +519,11 @@ private:
 		bool operator==(const base_iterator& other) { return ptr == other.ptr; }
 		bool operator!=(const base_iterator& other) { return ptr != other.ptr; }
 
-		bool operator<(const base_iterator& other) { return *this < other; }
-		bool operator>(const base_iterator& other) { return *this > other; }
+		bool operator<(const base_iterator& other) { return ptr < other.ptr; }
+		bool operator>(const base_iterator& other) { return ptr > other.ptr; }
 
-		bool operator<=(const base_iterator& other) { return *this <= other; }
-		bool operator>=(const base_iterator& other) { return *this >= other; }
+		bool operator<=(const base_iterator& other) { return ptr <= other.ptr; }
+		bool operator>=(const base_iterator& other) { return ptr >= other.ptr; }
 	};
 	using iterator = base_iterator<false>;
 	using const_iterator = base_iterator<true>;
@@ -555,7 +746,7 @@ public:
 	}
 	void push_front()
 	{
-		if()
+		
 	}
 	void resize()
 	{
@@ -569,6 +760,5 @@ public:
 
 int main()
 {
-	std::deque<int> d; d.push_back(10); d.push_back(4);
-	std::cout << d[1];
+	std::list<int> l;
 }
