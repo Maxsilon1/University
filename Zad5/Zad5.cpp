@@ -514,6 +514,7 @@ namespace my {
             return true;
         }
         bool remove(const T& o) { return removeFirstOccurrence(o); }
+        
         void removeAll(const std::vector<T>& a) { for (const auto& item : a) while (removeFirstOccurrence(item)); }
         void retainAll(const std::vector<T>& a) {
             size_t i = 0;
@@ -530,16 +531,23 @@ namespace my {
             return res;
         }
         void toArray(std::vector<T>& a) const { a = toArray(); }
+        
         T& element() { return getFirst(); }
+        
         bool offer(const T& obj) { addLast(obj); return true; }
+        
         T* peek() { return peekFirst(); }
         T poll() { return pollFirst(); }
+        
         T& getFirst() { if (isEmpty()) throw std::out_of_range("Deque empty"); return arr_[head_]; }
         T& getLast() { if (isEmpty()) throw std::out_of_range("Deque empty"); return arr_[get_physical_index(size_ - 1)]; }
+        
         bool offerFirst(const T& obj) { addFirst(obj); return true; }
         bool offerLast(const T& obj) { addLast(obj); return true; }
+        
         T pop() { return removeFirst(); }
         void push(const T& obj) { addFirst(obj); }
+        
         T removeLast() { return pollLast(); }
         T removeFirst() { return pollFirst(); }
 
@@ -565,27 +573,35 @@ namespace my {
             using iterator_category = std::random_access_iterator_tag;
             using difference_type = std::ptrdiff_t;
             using DequePtr = std::conditional_t<IsConst, const deque*, deque*>;
+
             DequePtr d; size_t idx;
             DequeIterator(DequePtr ptr, size_t i) : d(ptr), idx(i) {}
+            
             reference operator*() const { return d->arr_[d->get_physical_index(idx)]; }
             pointer operator->() const { return &d->arr_[d->get_physical_index(idx)]; }
+            
             DequeIterator& operator++() { ++idx; return *this; }
             DequeIterator operator++(int) { DequeIterator tmp = *this; ++idx; return tmp; }
             DequeIterator& operator--() { --idx; return *this; }
             DequeIterator operator--(int) { DequeIterator tmp = *this; --idx; return tmp; }
             DequeIterator& operator+=(difference_type n) { idx += n; return *this; }
             DequeIterator& operator-=(difference_type n) { idx -= n; return *this; }
+            
             difference_type operator-(const DequeIterator& other) const { return idx - other.idx; }
+            
             DequeIterator operator+(difference_type n) const { return { d, idx + n }; }
             DequeIterator operator-(difference_type n) const { return { d, idx - n }; }
+            
             bool operator==(const DequeIterator& other) const { return idx == other.idx; }
             bool operator!=(const DequeIterator& other) const { return idx != other.idx; }
             bool operator<(const DequeIterator& other) const { return idx < other.idx; }
         };
         using iterator = DequeIterator<false>;
         using const_iterator = DequeIterator<true>;
+        
         iterator begin() { return iterator(this, 0); }
         iterator end() { return iterator(this, size_); }
+        
         const_iterator begin() const { return const_iterator(this, 0); }
         const_iterator end() const { return const_iterator(this, size_); }
     };
@@ -627,6 +643,7 @@ namespace my {
             data.pop_back();
             if (!empty()) SiftDown(0);
         }
+
         T pool() {
             if (data.empty()) throw std::out_of_range("Heap empty");
             T val = std::move(data[0]);
@@ -635,6 +652,7 @@ namespace my {
             if (!data.empty()) SiftDown(0);
             return val;
         }
+
         const T& top() const { return data.front(); }
         T& top() noexcept { return data[0]; }
         bool empty() noexcept { return data.empty(); }
@@ -642,7 +660,7 @@ namespace my {
         bool contains(const T& val) noexcept { return std::find(data.begin(), data.end(), val) != data.end(); }
         void clear() noexcept { data.clear(); }
         ~Heap() {
-            if constexpr (std::is_pointer<T>::value) {}
+            if constexpr (std::is_pointer<T>::value) { delete[] data;}
         }
     };
 }
@@ -653,9 +671,11 @@ int priority(char op) {
     if (op == '^') return 3;
     return 0;
 }
+
 bool isOperator(char c) {
     return c == '+' || c == '-' || c == '*' || c == '/' || c == '^';
 }
+
 std::vector<std::string> toExpr(const std::string& expr) {
     std::vector<std::string> value;
     std::string num;
@@ -697,6 +717,7 @@ std::vector<std::string> toRPN(const std::vector<std::string>& value) {
     }
     return output;
 }
+
 double calculate(const std::vector<std::string>& rpn) {
     my::Stack<double> st;
     for (const std::string& t : rpn) {
@@ -714,6 +735,7 @@ double calculate(const std::vector<std::string>& rpn) {
     }
     return st.top();
 }
+
 void CurvaPolskaNotation() {
     std::string expr;
     std::cout << "Введите выражение (без пробелов): ";
@@ -728,6 +750,7 @@ struct Request {
     int id;
     int priority;
     int arrivalStep;
+
     bool operator<(const Request& other) const {
         return priority < other.priority;
     }
@@ -735,46 +758,77 @@ struct Request {
 
 void RequestTask() {
     std::srand(static_cast<unsigned>(std::time(nullptr)));
+
     int n;
     std::cout << "Введите количество шагов генерации: ";
     if (!(std::cin >> n)) return;
 
-    my::Heap<Request> pq(0);
+    my::Heap<Request> pq(0); 
     std::ofstream logFile("log.txt");
+    if (!logFile.is_open()) {
+        std::cerr << "Ошибка открытия log.txt\n";
+        return;
+    }
 
     int globalIdCounter = 1;
     int currentStep = 1;
+
     Request maxWaitRequest = {0, 0, 0};
     int maxWaitTime = -1;
+    int maxWaitRemovalStep = 0;
 
     for (; currentStep <= n; ++currentStep) {
+        // 1. Генерация (от 1 до 10 заявок)
         int numToGen = std::rand() % 10 + 1;
         for (int i = 0; i < numToGen; ++i) {
             Request req;
             req.id = globalIdCounter++;
             req.priority = std::rand() % 5 + 1;
             req.arrivalStep = currentStep;
+
             pq.push(req);
             logFile << "ADD " << req.id << " " << req.priority << " " << currentStep << "\n";
         }
+
         if (!pq.empty()) {
             Request topReq = pq.pool();
+
             int waitTime = currentStep - topReq.arrivalStep;
-            if (waitTime > maxWaitTime) { maxWaitTime = waitTime; maxWaitRequest = topReq; }
+            if (waitTime > maxWaitTime) {
+                maxWaitTime = waitTime;
+                maxWaitRequest = topReq;
+                maxWaitRemovalStep = currentStep;
+            }
             logFile << "REMOVE " << topReq.id << " " << topReq.priority << " " << currentStep << "\n";
         }
     }
+
     while (!pq.empty()) {
-        currentStep++;
         Request topReq = pq.pool();
+
         int waitTime = currentStep - topReq.arrivalStep;
-        if (waitTime > maxWaitTime) { maxWaitTime = waitTime; maxWaitRequest = topReq; }
+        if (waitTime > maxWaitTime) {
+            maxWaitTime = waitTime;
+            maxWaitRequest = topReq;
+            maxWaitRemovalStep = currentStep;
+        }
         logFile << "REMOVE " << topReq.id << " " << topReq.priority << " " << currentStep << "\n";
+
+        currentStep++;
     }
+
     logFile.close();
+
+    // Вывод результата
     if (maxWaitTime != -1) {
-        std::cout << "ID: " << maxWaitRequest.id << ", Priority: " << maxWaitRequest.priority
-            << ", Wait: " << maxWaitTime << "\n";
+        std::cout << "\n=== Заявка с максимальным временем ожидания ===\n";
+        std::cout << "ID заявки:       " << maxWaitRequest.id << "\n";
+        std::cout << "Приоритет:       " << maxWaitRequest.priority << "\n";
+        std::cout << "Шаг поступления: " << maxWaitRequest.arrivalStep << "\n";
+        std::cout << "Шаг удаления:    " << maxWaitRemovalStep << "\n";
+        std::cout << "Время ожидания:  " << maxWaitTime << " шагов\n";
+    } else {
+        std::cout << "Очередь была пуста, заявок не обработано.\n";
     }
 }
 
@@ -785,10 +839,12 @@ bool isValidPart(const std::string& s) {
     int val = std::stoi(s);
     return val >= 0 && val <= 255;
 }
+
 bool isValidIPv4(const std::string& block) {
     int dotCount = 0;
     for (char c : block) if (c == '.') dotCount++;
     if (dotCount != 3) return false;
+
     std::string part = "";
     int partsFound = 0;
     for (size_t i = 0; i <= block.length(); ++i) {
@@ -796,34 +852,57 @@ bool isValidIPv4(const std::string& block) {
             if (!isValidPart(part)) return false;
             part = "";
             partsFound++;
-        } else { part += block[i]; }
+        } else {
+            part += block[i];
+        }
     }
     return partsFound == 4;
 }
+
 void vecTask() {
     my::vector<std::string> lines;
     std::ifstream inFile("input.txt");
-    if (!inFile) { std::cerr << "No input.txt\n"; return; }
+    if (!inFile) { 
+        std::cerr << "Не удалось открыть input.txt\n"; 
+        return; 
+    }
+
     std::string line;
-    while (std::getline(inFile, line)) { lines.push_back(line); }
+    while (std::getline(inFile, line)) { 
+        lines.push_back(line); 
+    }
     inFile.close();
 
     my::vector<std::string> ips;
+
     for (size_t k = 0; k < lines.size(); ++k) {
-        std::string l = lines[k];
+        const std::string& l = lines[k]; 
+
         for (size_t i = 0; i < l.length(); ) {
             if (std::isdigit(l[i]) || l[i] == '.') {
                 size_t start = i;
-                while (i < l.length() && (std::isdigit(l[i]) || l[i] == '.')) i++;
+                while (i < l.length() && (std::isdigit(l[i]) || l[i] == '.')) {
+                    i++;
+                }
+
                 std::string block = l.substr(start, i - start);
-                if (isValidIPv4(block)) ips.push_back(block);
-            } else { i++; }
+
+                // Проверяем блок целиком
+                if (isValidIPv4(block)) {
+                    ips.push_back(block);
+                }
+            } else { 
+                i++; // Пропускаем буквы, пробелы
+            }
         }
     }
+
     std::ofstream outFile("output.txt");
-    for (size_t k=0; k<ips.size(); ++k) outFile << ips[k] << "\n";
+    for (size_t k = 0; k < ips.size(); ++k) {
+        outFile << ips[k] << "\n";
+    }
     outFile.close();
-    std::cout << "IPs processed to output.txt\n";
+    std::cout << "Обработка завершена. Результат в output.txt\n";
 }
 
 size_t digits(const std::string& s) {
@@ -864,16 +943,19 @@ void funcDeq() {
     }
     std::cout << "Оставшиеся строки:\n";
     while (!q.isEmpty()) std::cout << q.pollFirst() << '\n';
-}
+};
+
 
 int main()
 {
+    std::system("chcp 1251>nul");
+
     while(true) {
         std::cout << "\nВыберите задачу:\n";
         std::cout << "1. Обратная польская запись (Stack)\n";
         std::cout << "2. Приоритетная очередь заявок (Heap)\n";
         std::cout << "3. Поиск IP адресов (Vector)\n";
-        std::cout << "4. Сортировка строк (Deque)\n";
+        std::cout << "4. MyArr задача\n";
         std::cout << "0. Выход\n";
         std::cout << "> ";
 
@@ -885,10 +967,9 @@ int main()
         case '1': CurvaPolskaNotation(); break;
         case '2': RequestTask(); break;
         case '3': vecTask(); break;
-        case '4': funcDeq(); break;
+        case '4':  break;
         default: std::cout << "Неверный выбор.\n";
         }
     }
     return 0;
 }
-```
