@@ -107,8 +107,6 @@ public:
 
 	bool containsValue(const T& value)
 	{
-		// FIX: сравнивать значения через Comparator< K > нельзя, а у тебя он только по K.
-		// Делам линейный обход и сравниваем ==.
 		bool found = false;
 		auto func = [&found, &value](Node* cur)
 			{
@@ -122,7 +120,6 @@ public:
 	template<typename Container>
 	Container EntrySet()
 	{
-		// FIX: реализуем как контейнер пар (K, T)
 		Container c;
 		auto func = [&c](Node* cur)
 			{
@@ -135,8 +132,6 @@ public:
 	//Get / put
 	T& operator[](const K& other)
 	{
-		// FIX: в твоём коде тут множество ошибок (Node* cur, prev; comp(cur, other) и т.п.)
-		// Сохраняем идею: поиск, если нет – вставка.
 		if (root_ == nullptr)
 		{
 			Node* n = NodeAllocTraits::allocate(nodeAlloc_, 1);
@@ -178,7 +173,6 @@ public:
 	template<typename Container>
 	void keySet()
 	{
-		// FIX: сохранил логику печати
 		auto func = [](Node* tmp) { std::cout << "{ " << tmp->Key << ":" << tmp->Val << " } "; };
 		TraversePreOrder(root_, func);
 		std::cout << '\n';
@@ -189,13 +183,12 @@ public:
 	{
 		if (cur == nullptr)return;
 
-		func(cur, args...);                 // FIX: префиксный порядок – сначала вузел
+		func(cur, args...);
 		TraversePreOrder(cur->left, func, args...);
 		TraversePreOrder(cur->right, func, args...);
 	}
 
 	//Функция put реализована в []
-
 	void remove(const K& key)
 	{
 		Node* node = findNode(key);
@@ -452,7 +445,6 @@ public:
 
 	Node poolFirstElem()
 	{
-		//return min
 		Node* mn = minNode(root_);
 		if (!mn) throw std::runtime_error("Map is empty");
 		Node copy = *mn;
@@ -461,7 +453,6 @@ public:
 	}
 	Node poolLastElem()
 	{
-		// удаляет и возвращает максимальный
 		Node* mx = maxNode(root_);
 		if (!mx) throw std::runtime_error("Map is empty");
 		Node copy = *mx;
