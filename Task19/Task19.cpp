@@ -112,15 +112,31 @@ public:
 	
 
 	//Rotations
-	void LL(Node* t)//<-<- 
-	{}
-	void RR(Node* t)//->-> 
-	{}
-	void leftRotate(Node* t)//<-|->
-	{}
-	void rightRotate(Node* t)//->|<- 
-	{}
+	void leftRotate(Node* t)
+	{
+		Node* new_root = t->right;
+		new_root->parent = t->parent;
+		t->parent = new_root; 
+		
+		t->right = new_root->left;
+		new_root->left = t;
+	}
+	void rightRotate(Node* t)
+	{
+		Node* new_root = t->left;
+		new_root->parent = t; 
+		t->left = new_root->right;
+
+		new_root->right = t;
+		t->parent = new_root; 
+	}
 	//Fix RB tree
+private:
+	bool is_red(Node* n)
+	{
+		return n != nullptr || n->red;
+	}
+public:
 	void InsertFix(Node* t) 
 	{
 		if (t == begin)
@@ -179,11 +195,84 @@ public:
 		}
 		begin->red = false;
 	}
-	void EraseFix() {}
-	//- - - - - -
-private:
-	
-public:
+	void EraseFix(Node* t) 
+	{
+		while (t != begin && !is_red(t))
+		{
+			if (t->parent->left == t)
+			{
+				Node* brother == t->parent->right;
+
+				//First case - red brother
+				if (is_red(brother))
+				{
+					brother->red = false;
+					t->parent->red = true;
+					leftRotate(t->parent);
+					brother = t->parent->right;
+				}
+				
+				if (!is_red(brother->left) && !is_red(brother->right))
+				{
+					brother->red = true;
+					t = t->parent;
+				}
+				else
+				{
+					if (is_red(brother->left))//Making this case to go to the next case
+					{
+						brother->left->red = false;
+						brother->red = true;
+						rightRotate(brother);
+						brother = t->parent->right;
+					}
+					brother->red = t->parent->red;
+					brother->right->red = false;
+					t->parent->red = false;
+					leftRotate(t->parent);
+
+					break;
+				}
+			}
+			else
+			{
+				Node* brother = t->parent->left;
+
+				if (is_red(brother))
+				{
+					brother->red = false;
+					rightRotate(t->parent);
+				}
+
+				if (!is_red(brother->left) && !is_red(brother->right))
+				{
+					brother->red = true;
+					t = t->parent;
+				}
+				else
+				{
+					if (is_red(brother->right))
+					{
+						brother->right->red = false;
+						brother->red = true;
+						leftRotate(brother);
+						brother = t->parent->left;
+					}
+					brother->left->red = false;
+					brother->red = t->parent->red;
+					t->parent->red = false;
+					rightRotate(t->parent);
+
+					break;
+				}
+			}
+		}
+		if (t != nullptr)
+		{
+			t->red = false;
+		}
+	}
+
 	template<typename P>
 	std::pair<iterator<const Key, P>, bool> insert(P&& val)
 	{
@@ -330,7 +419,6 @@ public:
 		Node* parent;
 		while (cur->kv.first != k)
 		{
-			parent = cur;
 			if (cur == nullptr)
 				return {iterator(), false};
 			else if (comp(cur, k))
@@ -343,24 +431,30 @@ public:
 			}
 		}
 
-		if (t->right == nullptr && t->left == nullptr)
+		if ((t->right == nullptr && t->left != nullptr) || (t->right != nullptr && t->left == nullptr))
 		{
-
+			if (t->left != nullptr)
+			{
+				cur->parent = cur->right;
+				cur->right->parent = cur->parent;
+			}
+			else
+			{
+				cur->parent = cur->left;
+				cur->left->parent = cur->parent;
+			}
 		}
-		else if ((t->right == nullptr && t->left != nullptr) || (t->right != nullptr && t->left == nullptr))
-		{
-
-		}
-		else
+		else if(t->right != nullptr && t->left != nullptr)
 		{
 			cur = cur->right;
 			while (cur->left != nullptr)
 				cur = cur->left;
 			t->kv = std::move(cur->kv);
-
-			NodeAllocTraits::destroy(alloc_, cur);
-			NodeAllocTraits::deallocate(cur, 1);
 		}
+		
+		NodeAllocTraits::destroy(alloc_, cur);
+		NodeAllocTraits::deallocate(cur, 1);
+
 		EraseFix(t);
 	}
 };
