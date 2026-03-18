@@ -1,6 +1,8 @@
 ﻿#include <iostream>
 
 #include <map>
+#include <stack>
+
 #include <type_traits>
 
 template<typename Key, typename T, class Alloc = std::allocator<T>, class Comparator = std::less<Key>>//Comparator(F, S) == true -> F < S
@@ -22,43 +24,97 @@ private:
 	{
 		std::pair<const Key, T> kv;
 
-		Node(std::pair<const Key, T> in) : BaseNode() { kv{ in }; }
+		Node(std::pair<const Key, T> in) : BaseNode() { kv(in); }
 		
 		template<typename... Args> 
 		Node(Args&&... val): kv(std::forward<Args>(val)...) {}
 	};
 	
 	using AllocTraits = std::allocator_traits<Alloc>;
-	using NodeAlloc = std::allocator_traits<Alloc>::template rebind_alloc<Node>;
+	using NodeAlloc = typename std::allocator_traits<Alloc>::template rebind_alloc<Node>;
 	using BaseNodeAlloc = typename std::allocator_traits<Alloc>::template rebind_alloc<BaseNode>;
 
 	using NodeAllocTraits = std::allocator_traits<NodeAlloc>;
 	using BaseNodeAllocTraits = std::allocator_traits<BaseNodeAlloc>;
 
-	NodeAlloc _alloc;
-	BaseNodeAlloc _base_alloc;
+	NodeAlloc alloc_;
+	BaseNodeAlloc base_alloc_;
 
-	BaseNode* begin;
-	BaseNode* fakeNode_;
+	BaseNode* header_;//parent - root, left - begin(), right - end() - 1
 
-	size_t sz_;
+	size_t size_;
 	Comparator comp;
+
+	void reset_header()
+	{
+		header_->parent = &header_;
+		header_->left = &header_;
+		header_->right = &header_;
+
+		size_ = 0;
+	}
+
 public:
-	Map(const Alloc& alloc = Alloc()) : _alloc(alloc) {}
-
-	//Привести в нормальную форму
-	Map(const Map& other) = default;
-	Map(Map&& other)
+	Map(const Alloc& alloc = Alloc()) : alloc_(alloc) { reset_header(); }
+	Map(const Map& other) : alloc_(other.alloc_)
 	{
+		reset_header();
 
+		for (auto it = other.begin(); it != other.end(); ++it)
+			insert(*it);
 	}
-	Map& operator = (const Map& other)
+	Map(Map&& other) noexcept : alloc_(std::move(other.alloc_))
 	{
+		reset_header();
+		
+		if (size_ > 0)
+		{
+			header_->parent = other.header_->parent;
+			header_->left = other.header_->left;
+			header_->right = other.header_->right;
+			size_ = other.size_;
 
+			header_->parent->parent = header_->parent;
+
+			other.reset_header();
+		}
+		return *this;
 	}
-	Map& operator=(Map&& other)
+
+	Map& operator=(const Map& other)
 	{
-		 
+		if (this == other)return *this;
+
+		clear();
+		alloc_ = other.alloc_;
+
+		for (auto it = other.begin(); it != other.end(); ++it)
+			insert(*it);
+		
+		return *this;
+	}
+	Map& operator=(Map&& other) noexcept
+	{
+		if (this != other)return *this;
+
+		clear();
+
+		alloc_ = std::move(other.alloc_);
+
+		if (size_ > 0)
+		{
+			header_->parent = other.header_->parent;
+			header_->left = other.header_->left;
+			header_->right = other.header_->right;
+			size_ = other.size_;
+
+			header_->parent->parent = header_->parent;
+
+			other.reset_header();
+		}
+		return *this;
+
+		return *this;
 	}
 
 	template<typename... Args>
@@ -79,64 +135,162 @@ public:
 	template<bool isConst>
 	class base_iterator
 	{
-	private:
-		using dif_type = std::ptrdiff_t;
-		using ptr_type = std::conditional_t<isConst, const BaseNode*, BaseNode*>;
-		using ref_type = std::conditional_t<isConst, const BaseNode&, BaseNode&>;
-
-		BaseNode* ptr;
-		
 	public:
+		using iterator_category = std::bidirectional_iterator_tag;
+		using value = value_type;
+		using difference_type = std::ptrdiff_t;
+		using pointer = std::conditional_t<isConst, const value*, value*>;
+		using reference = std::conditional_t<isConst, const value&, value&>;
+	private:
+		BaseNode* header_;
+		BaseNode* ptr;
+	public:
+		base_iterator(BaseNode* p, BaseNode* header): header_(header), ptr(p) {}
 
-		base_iterator& operator++() {}
-		
-		base_iterator& operator+=(dif_type& other) {}
-		base_iterator& operator-=(dif_type& other) {}
+		base_iterator& operator++()
+		{
+			if (ptr == header_)return *this;
 
-		friend base_iterator& operator+(base_iterator& it, dif_type other) {}
-		friend base_iterator& operator+(dif_type other, base_iterator& it) {}
+			if(ptr->right != nullptr)
+			{
+				ptr = ptr->right;
+				while (ptr->left != nullptr)
+					ptr = ptr->left;
+			}
+			else
+			{
+				while (ptr->parent != header_ && ptr->parent->right == ptr)
+					ptr = ptr->parent;
+				ptr = ptr->parent;
+			}
+			return *this;
+		}
+		base_iterator operator++(int)
+		{
+			base_iterator copy = *this;
+			++(*this);
+			return copy;
+		}
 
-		friend base_iterator& operator-(base_iterator& it, dif_type other) {}
-		friend base_iterator& operator-(dif_type other, base_iterator& it) {}
+		base_iterator& operator--()
+		{
+			if (ptr == header_)
+			{
+				ptr = header_->right;
+			}
+			else if (ptr->left != nullptr)
+			{
+				ptr = ptr->left;
+				while (ptr->right != nullptr)
+					ptr = ptr->right;
+			}
+			else
+			{
+				while (ptr->parent != header_ && ptr->parent->left == ptr)
+					ptr = ptr->parent;
+				ptr = ptr->parent;
+			}
+			return *this;
+		}
+		base_iterator operator--(int)
+		{
+			base_iterator copy = *this;
+			--(*this);
+			return copy;
+		}
 
+		reference operator*() const { return static_cast<Node*>(ptr)->kv; }
+		pointer operator->() const { return &(*(*this)); }//*this - out iterator/ * - operator*()/& - adress
 
+		friend bool operator==(base_iterator& first, base_iterator& second) { return first.ptr == second.ptr; }
+		friend bool operator!=(base_iterator& first, base_iterator& second) { return first.ptr != second.ptr; }
 	};
 
 	using iterator = base_iterator<false>;
+
+	iterator begin() const
+	{
+		return iterator(header_->left, header_);
+	}
+	iterator end() const
+	{
+		return iterator(header_, header_);
+	}
+
+	using reverse_iterator = std::reverse_iterator<iterator>;
+
+	reverse_iterator rbegin() { return reverse_iterator(end()); }
+	reverse_iterator rend() { return reverse_iterator(begin()); }
+
 	using const_iterator = base_iterator<true>;
+
+	const const_iterator cbegin() const { return ; }
+	const const_iterator cend() const { return; }
 
 	iterator& find(const Key& key)
 	{}
 	const_iterator& find(const Key& key) const {}
-	
-	
 
-	//Rotations
-	void leftRotate(Node* t)
+	friend std::ostream& operator<<(std::ostream& os, const Map& map)
 	{
-		Node* new_root = t->right;
-		new_root->parent = t->parent;
-		t->parent = new_root; 
-		
-		t->right = new_root->left;
-		new_root->left = t;
+		os << "{ ";
+		for (auto it = begin(); it != end(); ++it)
+			os << it->first << ":" << it->second << ", ";
+		os << " }";
 	}
-	void rightRotate(Node* t)
+	void clear()
 	{
-		Node* new_root = t->left;
-		new_root->parent = t; 
-		t->left = new_root->right;
+		auto it = begin();
+		auto en = end();
+		while(it != en)
+		{
+			iterator tmp = it;
+			++it;
 
-		new_root->right = t;
-		t->parent = new_root; 
+			NodeAllocTraits::destroy(alloc_, *tmp);
+			NodeAllocTraits::deallocate(alloc_, *tmp, 1);
+		}
+		reset_header();
 	}
-	//Fix RB tree
 private:
+	//Rotations
+	void leftRotate(Node* x)
+	{
+		Node* y = x->right;
+
+		x->right = y->left;
+		if (y->left != nullptr)
+			y->left->parent = x;
+
+		y->parent = x->parent;
+		if (x->parent == header_)begin = y;
+		else if (x->parent->left == x)x->parent->left = y;
+		else x->parent->right = y;
+
+		y->left = x;
+		x->parent = y;
+	}
+	void rightRotate(Node* x)
+	{
+		Node* y = x->left;
+
+		x->left = y->right;
+		if (y->right != nullptr)
+			y->right->parent = x;
+
+		y->parent = x->parent;
+		if (x->parent == header_)begin = y;
+		else if (x->parent->left == x)x->parent->left = y;
+		else x->parent->right = y;
+
+		y->right = x;
+		x->parent = y;
+	}
+
 	bool is_red(Node* n)
 	{
 		return n != nullptr || n->red;
 	}
-public:
 	void InsertFix(Node* t) 
 	{
 		if (t == begin)
@@ -201,7 +355,7 @@ public:
 		{
 			if (t->parent->left == t)
 			{
-				Node* brother == t->parent->right;
+				Node* brother = t->parent->right;
 
 				//First case - red brother
 				if (is_red(brother))
@@ -219,7 +373,7 @@ public:
 				}
 				else
 				{
-					if (is_red(brother->left))//Making this case to go to the next case
+					if (!is_red(brother->right))//Making this case to go to the next case
 					{
 						brother->left->red = false;
 						brother->red = true;
@@ -241,7 +395,9 @@ public:
 				if (is_red(brother))
 				{
 					brother->red = false;
+					t->parent->red = true;
 					rightRotate(t->parent);
+					brother = t->parent->left;
 				}
 
 				if (!is_red(brother->left) && !is_red(brother->right))
@@ -251,7 +407,7 @@ public:
 				}
 				else
 				{
-					if (is_red(brother->right))
+					if (!is_red(brother->left))
 					{
 						brother->right->red = false;
 						brother->red = true;
@@ -272,9 +428,10 @@ public:
 			t->red = false;
 		}
 	}
-
-	template<typename P>
-	std::pair<iterator<const Key, P>, bool> insert(P&& val)
+public:
+	//For value&& and const value&
+	template<typename U>
+	std::pair<iterator, bool> insert(U&& value)
 	{
 		Node* parent;
 		Node* cur = begin;
@@ -282,12 +439,12 @@ public:
 		while (cur != nullptr)
 		{
 			parent = cur;
-			if (comp(cur->kv.first, key))
+			if (comp(cur->kv.first, value.first))
 			{
 				cur = cur->left;
 				go_left = true;
 			}
-			else if (comp(key, cur->kv.first))
+			else if (comp(value.first, cur->kv.first))
 			{
 				cur = cur->right;
 				go_left = false;
@@ -298,7 +455,7 @@ public:
 			}
 		}
 
-		Node* new_node = allocate_node(std::forward<P>(val));
+		Node* new_node = allocate_node(std::forward<U>(value));
 		
 		new_node->parent = parent;
 		if (parent == nullptr)
@@ -320,6 +477,7 @@ public:
 
 		return {new_node, true};
 	}
+
 	template<typename... Args>
 	std::pair<iterator, bool> try_emplace(const Key& k, Args&&... args) 
 	{
@@ -348,9 +506,9 @@ public:
 		Node* new_node = allocate_node(std::forward<Args>(args)...);
 		
 		new_node->parent = parent;
-		if (parent == fakeNode_)
+		if (parent == header_)
 		{
-			begin = new_node;
+			header_->left = new_node;
 		}
 		else if (go_left)
 		{
@@ -393,7 +551,7 @@ public:
 
 		Node* new_node = allocate_node(
 			std::piecewise_construct,//Говорим компилятору, что будем упаковывать элементы в кортеж
-			std::forward_as_tuple(std::forward<K>(k)),
+			std::forward_as_tuple(std::forward<Key>(k)),
 			std::forward_as_tuple()
 		);
 
@@ -411,55 +569,221 @@ public:
 		++size_;
 		return new_node->kv.second;
 	}
-
-	std::pair<iterator, bool> erase(const Key& k) 
+	
+	template<typename U>
+	bool contains(const U& value) const
 	{
 		Node* cur = begin;
 
-		Node* parent;
-		while (cur->kv.first != k)
+		while (cur != nullptr)
 		{
-			if (cur == nullptr)
-				return {iterator(), false};
-			else if (comp(cur, k))
+			if (comp(value.first, cur->kv.first))
+				cur = cur->left;
+			else if (comp(cur->kv.first, value.first))
+				cur = cur->right;
+			else
+				return true;
+		}
+		return false;
+	}
+
+	template<typename... Args>
+	bool containsAll(Args&&... args) const
+	{
+		return (contains(std::forward<Args>(args)) && ...);
+	}
+	template<typename InputIt>
+	bool containsAll(InputIt& first, InputIt& last) const
+	{
+		for (; first != last; ++first)
+			if (!contains(*first))
+				return false;
+		return true;
+	}
+	template<typename Range>
+	bool containsAll(const Range& range) const
+	{
+		for (const auto& x : range)
+			if (!contains(x))
+				return false;
+		return true;
+	}
+
+	bool empty() const { return size_ == 0; }
+	size_t size() const { return size_; }
+
+	//Доделать
+	std::pair<iterator, bool> erase(const Key& k) 
+	{
+		Node* cur = begin();
+		while(cur != nullptr)
+		{
+			if (comp(k, cur->kv.first)) cur = cur->left;
+			else if (comp(cur->kv.first, k)) cur = cur->right;
+			else break;
+		}
+		if (cur == nullptr)return { end(), false };
+
+		Node* del_node = cur;
+		Node* x = nullptr;
+		bool orig_is_red;
+
+		auto transplant = [&](Node* u, Node* v) {
+			if (u->parent == nullptr)begin = v;
+			else if (u->parent->left == u)u->parent->left = v;
+			else u->parent->right = v;
+
+			if (v != nullptr)v->parent = u->parent;
+			};
+
+		if(del_node->left == nullptr)
+		{
+			x = del_node->right;
+			transplant(del_node, x);
+		}
+		else if(del_node->right == nullptr)
+		{
+			x = del_node->left;
+			transplant(del_node, x);
+		}
+		else
+		{
+			x = del_node->right;
+			while (x->left != nullptr)
+				x = x->left;
+
+			orig_is_red = x->red;
+			Node* child = x->right;
+
+			if (x->parent != del_node)
+			{
+				transplant(x, child);
+				x->right = del_node->right;
+				x->right->parent = x;
+			}
+			else if (child != nullptr)
+			{
+				child->parent = x;
+			}
+			transplant(del_node, x);
+			x->left = del_node->left;
+			x->left->parent = x;
+			x->color = del_node->color;
+		}
+
+		if(del_node == nullptr || !del_node->color)
+		{
+			EraseFix(x);
+		}
+
+		NodeAllocTraits::destroy(alloc_, del_node);
+		NodeAllocTraits::deallocate(alloc_, del_node, 1);
+
+		return { iterator(), true};
+	}
+
+	template<typename... Args>
+	size_t erase(Args&&... args)
+	{
+		return ((erase(std::forward<Args>(args)).second ? 1 : 0) + ...);
+	}
+	template<typename Range>
+	size_t erase(const Range& range)
+	{
+		for (const auto& x : range)
+			erase(x);
+		return size_;
+	}
+	template<typename InputIt>
+	size_t erase(InputIt first, InputIt last)
+	{
+		size_t cnt = 0;
+		for (; first != last; ++first)
+		{
+			if (erase(*first).second)
+				++cnt;
+		}
+		return cnt;
+	}
+	iterator erase(iterator first, iterator last)
+	{
+		while (first != last)
+			first = erase(first);
+		return last;
+	}
+
+	template<typename Container>
+	Container subSet(iterator first, iterator last) const
+	{
+		return Container(first, last);
+	}
+
+	template<typename Container>
+	Container headSet(iterator head) const
+	{
+		return Container(begin, head);
+	}
+	template<typename Container>
+	Container headSet(const Key& k) const
+	{
+		Container tmp;
+
+		Node* cur = begin;
+		while (cur != nullptr)
+		{
+			if (comp(k, cur->kv.first))
+			{
+				tmp.insert(tmp.end(), cur);
+				cur = cur->left;
+			}
+			else if (comp(cur->kv.first, k))
+				cur = cur->right;
+			else
 			{
 				cur = cur->left;
 			}
-			else
+		}
+		return tmp;
+	}
+
+	template<typename Container>
+	Container tailSet(iterator tail) const
+	{
+		return Container(tail, end());
+	}
+	template<typename Container>
+	Container tailSet(const Key& key)
+	{
+		Container tmp;
+
+		Node* cur = header_->parent;
+		while (cur != nullptr)
+		{
+			if(comp(cur->kv.first, key))
 			{
+				tmp.insert(tmp.end(), cur);
 				cur = cur->right;
 			}
-		}
-
-		if ((t->right == nullptr && t->left != nullptr) || (t->right != nullptr && t->left == nullptr))
-		{
-			if (t->left != nullptr)
-			{
-				cur->parent = cur->right;
-				cur->right->parent = cur->parent;
-			}
 			else
-			{
-				cur->parent = cur->left;
-				cur->left->parent = cur->parent;
-			}
-		}
-		else if(t->right != nullptr && t->left != nullptr)
-		{
-			cur = cur->right;
-			while (cur->left != nullptr)
 				cur = cur->left;
-			t->kv = std::move(cur->kv);
 		}
-		
-		NodeAllocTraits::destroy(alloc_, cur);
-		NodeAllocTraits::deallocate(cur, 1);
+		return tmp;
+	}
 
-		EraseFix(t);
+	template<typename Container>
+	Container descending_set()
+	{
+		Container tmp;
+		for (auto it = rbegin(); it != rend(); ++it)
+			tmp.insert(tmp.end(), *it);
+		return tmp;
 	}
 };
 
 int main()
 {
-	
+	Map<int, int> mp;
+	std::map<int, int> m;
+	m.insert(5, 3);
+	std::cout << mp;
 }
