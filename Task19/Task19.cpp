@@ -5,7 +5,7 @@
 
 #include <type_traits>
 
-template<typename Key, typename T, class Alloc = std::allocator<T>, class Comparator = std::less<Key>>//Comparator(F, S) == true -> F < S
+template<typename Key, typename T, class Comparator = std::less<Key>, class Alloc = std::allocator<std::pair<const Key, T>>>
 class Map
 {
 public:
@@ -238,20 +238,7 @@ public:
 			os << it->first << ":" << it->second << ", ";
 		os << " }";
 	}
-	void clear()
-	{
-		auto it = begin();
-		auto en = end();
-		while(it != en)
-		{
-			iterator tmp = it;
-			++it;
-
-			NodeAllocTraits::destroy(alloc_, *tmp);
-			NodeAllocTraits::deallocate(alloc_, *tmp, 1);
-		}
-		reset_header();
-	}
+	
 private:
 	//Rotations
 	void leftRotate(Node* x)
@@ -712,6 +699,76 @@ public:
 		return last;
 	}
 
+	BaseNode* lower_bound(const Key& key)
+	{
+		BaseNode* cur = header_->parent;
+		BaseNode* start_node = &header_;
+		while (cur != nullptr)
+		{
+			if (comp(key, cur->kv.first))
+			{
+				cur = cur->right;
+			}
+			else
+			{
+				start_node = cur;
+				cur = cur->left;
+			}
+		}
+		return start_node;
+	}
+	BaseNode* upper_bound(const Key& key)
+	{
+		BaseNode* cur = header_->parent;
+		BaseNode* start_node = &header_;
+		while (cur != nullptr)
+		{
+			if (comp(key, cur->kv.first))
+			{
+				start_node = cur;
+				cur = cur->right;
+			}
+			else
+			{
+				cur = cur->left;
+			}
+		}
+		return start_node;
+	}
+	void clear()
+	{
+		BaseNode* cur = header_->parent;
+		while (cur != &header_ && cur != nullptr)
+		{
+			if (cur->left != nullptr)
+			{
+				cur = cur->left;
+			}
+			else if (cur->right != nullptr)
+			{
+				cur = cur->right;
+			}
+			else
+			{
+				BaseNode* parent = cur->parent;
+
+				if (parent != header_)
+				{
+					if (parent->left == cur)parent->left = nullptr;
+					else parent->right = nullptr;
+				}
+
+				Node* node_to_delete = static_cast<Node*>(cur);
+
+				NodeAllocTraits::destroy(alloc_, node_to_delete);
+				NodeAllocTraits::deallocate(alloc_, node_to_delete, 1);
+
+				cur = parent;
+			}
+		}
+		reset_header();
+	}
+
 	template<typename Container>
 	Container subSet(iterator first, iterator last) const
 	{
@@ -724,25 +781,15 @@ public:
 		return Container(begin, head);
 	}
 	template<typename Container>
-	Container headSet(const Key& k) const
+	Container headSet(const Key& key) const
 	{
 		Container tmp;
 
-		Node* cur = begin;
-		while (cur != nullptr)
-		{
-			if (comp(k, cur->kv.first))
-			{
-				tmp.insert(tmp.end(), cur);
-				cur = cur->left;
-			}
-			else if (comp(cur->kv.first, k))
-				cur = cur->right;
-			else
-			{
-				cur = cur->left;
-			}
-		}
+		auto it = begin();
+		for (auto other = upper_boud(key);it != other; ++it)
+			tmp.insert(tmp.end(), *it);
+		tmp.insert(tmp.end(), *(++it));
+
 		return tmp;
 	}
 
@@ -756,17 +803,9 @@ public:
 	{
 		Container tmp;
 
-		Node* cur = header_->parent;
-		while (cur != nullptr)
-		{
-			if(comp(cur->kv.first, key))
-			{
-				tmp.insert(tmp.end(), cur);
-				cur = cur->right;
-			}
-			else
-				cur = cur->left;
-		}
+		for (auto it = lower_bound(key); it != end(); ++it)
+			tmp.insert(tmp.end(), *it);
+
 		return tmp;
 	}
 
@@ -786,4 +825,5 @@ int main()
 	std::map<int, int> m;
 	m.insert(5, 3);
 	std::cout << mp;
+	mp.rbegin();
 }
