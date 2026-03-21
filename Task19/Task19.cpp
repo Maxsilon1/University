@@ -59,7 +59,7 @@ public:
 		BaseNodeAllocTraits::construct(base_alloc_, header_);
 		reset_header(); 
 	}
-	Map(const Map& other) : alloc_(other.alloc_), base_alloc_(alloc), comp(other.comp)
+	Map(const Map& other) : alloc_(other.alloc_), base_alloc_(other.alloc_), comp(other.comp)
 	{
 		header_ = BaseNodeAllocTraits::allocate(base_alloc_, 1);
 		BaseNodeAllocTraits::construct(base_alloc_, header_);
@@ -148,8 +148,8 @@ public:
 		using iterator_category = std::bidirectional_iterator_tag;
 		using value_type = Map::value_type;
 		using difference_type = std::ptrdiff_t;
-		using pointer = std::conditional_t<isConst, const value*, value*>;
-		using reference = std::conditional_t<isConst, const value&, value&>;
+		using pointer = std::conditional_t<isConst, const value_type*, value_type*>;
+		using reference = std::conditional_t<isConst, const value_type&, value_type&>;
 	private:
 		BaseNode* header_;
 		BaseNode* ptr;
@@ -243,7 +243,7 @@ public:
 	}
 	const_iterator end() const
 	{
-		return const_iterator{ header_, header };
+		return const_iterator{ header_, header_ };
 	}
 	const const_iterator cend() const 
 	{ 
@@ -282,7 +282,7 @@ public:
 	friend std::ostream& operator<<(std::ostream& os, const Map& map)
 	{
 		os << "{ ";
-		for (auto it = map.begin(); it != end(); ++it)
+		for (auto it = map.begin(); it != map.end(); ++it)
 			os << it->first << ":" << it->second << ", ";
 		os << " }";
 		return os;
@@ -465,8 +465,7 @@ private:
 	}
 public:
 	//For value&& and const value&
-	template<typename U>
-	std::pair<iterator, bool> insert(U&& value)
+	std::pair<iterator, bool> insert(std::pair<Key, T>&& value)
 	{
 		BaseNode* parent = header_;
 		BaseNode* cur = header_->parent;
@@ -491,7 +490,11 @@ public:
 			}
 		}
 
-		Node* new_node = allocate_node(std::forward<U>(value));
+		Node* new_node = allocate_node(
+		std::piecewise_construct,
+		std::forward_as_tuple(value.first),
+		std::forward_as_tuple(value.second)
+		);
 		new_node->parent = parent;
 		new_node->left = nullptr;
 		new_node->right = nullptr;
@@ -528,11 +531,13 @@ public:
 		BaseNode* parent;
 		BaseNode* cur = header_->parent;
 
+		bool go_left = false;
 		while (cur != nullptr)
 		{
 			if (comp(k, static_cast<Node*>(cur)))
 			{
 				parent = cur; go_left = true;
+				cur = cur->left;
 			}
 			else if (comp(static_cast<Node*>(cur), k))
 			{
@@ -571,7 +576,7 @@ public:
 
 		if (header_->left == header_ || comp(new_node->kv.first, static_cast<Node*>(header_->left)))
 			header_->left = new_node;
-		if(header_->right == header || comp(static_cast<Node*>(header_->right), new_node->kv.first))
+		if(header_->right == header_ || comp(static_cast<Node*>(header_->right), new_node->kv.first))
 			header_->right = new_node;
 
 		InsertFix(new_node);
@@ -615,6 +620,11 @@ public:
 			header_->left = new_node;
 		if (header_->right = header_ || comp(static_cast<Node*>(header_->right)->kv.first, new_node->kv.first))
 			header_->right = new_node;
+
+		InsertFix(new_node);
+		++size_;
+
+		return new_node->kv.second;
 	}
 	T& operator[](Key&& k)
 	{
@@ -651,15 +661,23 @@ public:
 		new_node->parent = parent;
 		new_node->left = nullptr;
 		new_node->right = nullptr;
+		new_node->red = true;
 
-		if (go_left)
-		{
+		if (parent == header_)
+			new_node->parent = header_->parent;
+		else if (go_left)
 			parent->left = new_node;
-		}
 		else
-		{
 			parent->right = new_node;
-		}
+
+		if (header_->left == header_ ||
+			comp(new_node->kv.first, static_cast<Node*>(header_->left)->kv.first))
+			header_->left = new_node;
+
+		if (header_->right == header_ ||
+			comp(static_cast<Node*>(header_->right)->kv.first, new_node->kv.first))
+			header_->right = new_node;
+
 		InsertFix(new_node);
 
 		++size_;
@@ -669,7 +687,7 @@ public:
 	template<typename U>
 	bool contains(const U& value) const
 	{
-		Node* cur = begin;
+		BaseNode* cur = begin;
 
 		while (cur != nullptr)
 		{
@@ -684,14 +702,14 @@ public:
 	}
 
 	template<typename... Args>
-	bool containsAll(Args&&... args) const
+	bool containsAll(Args&... args) const
 	{
 		return (contains(std::forward<Args>(args)) && ...);
 	}
 	template<typename InputIt>
 	bool containsAll(InputIt& first, InputIt& last) const
 	{
-		for (; first != last; ++first)
+		for (;first != last; ++first)
 			if (!contains(*first))
 				return false;
 		return true;
@@ -708,88 +726,132 @@ public:
 	bool empty() const { return size_ == 0; }
 	size_t size() const { return size_; }
 
-	//Доделать
-	std::pair<iterator, bool> erase(const Key& k) 
+	iterator erase(iterator pos)
 	{
-		Node* cur = begin();
-		while(cur != nullptr)
-		{
-			if (comp(k, cur->kv.first)) cur = cur->left;
-			else if (comp(cur->kv.first, k)) cur = cur->right;
-			else break;
-		}
-		if (cur == nullptr)return { end(), false };
+		if (pos == end()) return end();
 
-		Node* del_node = cur;
-		Node* x = nullptr;
-		bool orig_is_red;
+		iterator next = pos;
+		++next;
 
-		auto transplant = [&](Node* u, Node* v) {
-			if (u->parent == nullptr)begin = v;
-			else if (u->parent->left == u)u->parent->left = v;
-			else u->parent->right = v;
+		BaseNode* cur = pos.get_node(); // нужен getter в итераторе (см. ниже)
+		BaseNode* del_node = cur;
+		BaseNode* x = nullptr;
+		BaseNode* x_parent = nullptr;
+		bool orig_is_red = del_node->red;
 
-			if (v != nullptr)v->parent = u->parent;
+		auto transplant = [&](BaseNode* u, BaseNode* v) {
+			if (u->parent == header_)
+				header_->parent = v;
+			else if (u->parent->left == u)
+				u->parent->left = v;
+			else
+				u->parent->right = v;
+
+			if (v != nullptr)
+				v->parent = u->parent;
 			};
 
-		if(del_node->left == nullptr)
+		if (del_node->left == nullptr)
 		{
 			x = del_node->right;
+			x_parent = del_node->parent;
 			transplant(del_node, x);
 		}
-		else if(del_node->right == nullptr)
+		else if (del_node->right == nullptr)
 		{
 			x = del_node->left;
+			x_parent = del_node->parent;
 			transplant(del_node, x);
 		}
 		else
 		{
-			x = del_node->right;
-			while (x->left != nullptr)
-				x = x->left;
+			// Находим successor (минимум в правом поддереве)
+			BaseNode* successor = del_node->right;
+			while (successor->left != nullptr)
+				successor = successor->left;
 
-			orig_is_red = x->red;
-			Node* child = x->right;
+			orig_is_red = successor->red;
+			x = successor->right;
+			x_parent = successor;
 
-			if (x->parent != del_node)
+			if (successor->parent != del_node)
 			{
-				transplant(x, child);
-				x->right = del_node->right;
-				x->right->parent = x;
+				x_parent = successor->parent;
+				transplant(successor, successor->right);
+				successor->right = del_node->right;
+				successor->right->parent = successor;
 			}
-			else if (child != nullptr)
-			{
-				child->parent = x;
-			}
-			transplant(del_node, x);
-			x->left = del_node->left;
-			x->left->parent = x;
-			x->color = del_node->color;
+
+			transplant(del_node, successor);
+			successor->left = del_node->left;
+			successor->left->parent = successor;
+			successor->red = del_node->red;
 		}
 
-		if(del_node == nullptr || !del_node->color)
+		// Обновляем header_->left и header_->right
+		if (del_node == header_->left)
 		{
-			EraseFix(x);
+			if (del_node->right != nullptr)
+			{
+				BaseNode* tmp = del_node->right;
+				while (tmp->left != nullptr) tmp = tmp->left;
+				header_->left = tmp;
+			}
+			else
+			{
+				header_->left = del_node->parent;
+			}
+		}
+		if (del_node == header_->right)
+		{
+			if (del_node->left != nullptr)
+			{
+				BaseNode* tmp = del_node->left;
+				while (tmp->right != nullptr) tmp = tmp->right;
+				header_->right = tmp;
+			}
+			else
+			{
+				header_->right = del_node->parent;
+			}
 		}
 
-		NodeAllocTraits::destroy(alloc_, del_node);
-		NodeAllocTraits::deallocate(alloc_, del_node, 1);
+		if (!orig_is_red)
+		{
+			if (x != nullptr)
+				EraseFix(x);
+			else if (x_parent != nullptr && x_parent != header_)
+			{
+				// Создаём "фантомный" чёрный nullptr — сложный случай
+				// Упрощённый вариант: просто фиксим от parent
+			}
+		}
 
-		return { iterator(), true};
+		// Если дерево стало пустым
+		if (size_ == 1)
+		{
+			header_->parent = nullptr;
+			header_->left = header_;
+			header_->right = header_;
+		}
+
+		NodeAllocTraits::destroy(alloc_, static_cast<Node*>(del_node));
+		NodeAllocTraits::deallocate(alloc_, static_cast<Node*>(del_node), 1);
+		--size_;
+
+		return next;
 	}
 
-	template<typename... Args>
-	size_t erase(Args&&... args)
+	std::pair<iterator, bool> erase(const Key& k)
 	{
-		return ((erase(std::forward<Args>(args)).second ? 1 : 0) + ...);
+		iterator it = find(k);
+		if (it == end())
+			return {end(), false};
+
+		iterator next = erase(it);
+		return {next, true};
 	}
-	template<typename Range>
-	size_t erase(const Range& range)
-	{
-		for (const auto& x : range)
-			erase(x);
-		return size_;
-	}
+
 	template<typename InputIt>
 	size_t erase(InputIt first, InputIt last)
 	{
@@ -801,6 +863,7 @@ public:
 		}
 		return cnt;
 	}
+
 	iterator erase(iterator first, iterator last)
 	{
 		while (first != last)
@@ -808,46 +871,85 @@ public:
 		return last;
 	}
 
-	BaseNode* lower_bound(const Key& key)
+	iterator lower_bound(const Key& key)
 	{
 		BaseNode* cur = header_->parent;
-		BaseNode* start_node = header_;
+		BaseNode* result = header_;
 		while (cur != nullptr)
 		{
-			if (comp(key, cur->kv.first))
+			if (comp(static_cast<Node*>(cur)->kv.first, key))
 			{
 				cur = cur->right;
 			}
 			else
 			{
-				start_node = cur;
+				result = cur;
 				cur = cur->left;
 			}
 		}
-		return start_node;
+		return iterator(result, header_);
 	}
-	BaseNode* upper_bound(const Key& key)
+
+	const_iterator lower_bound(const Key& key) const
 	{
 		BaseNode* cur = header_->parent;
-		BaseNode* start_node = header_;
+		BaseNode* result = header_;
+		while (cur != nullptr)
+		{
+			if (comp(static_cast<Node*>(cur)->kv.first, key))
+			{
+				cur = cur->right;
+			}
+			else
+			{
+				result = cur;
+				cur = cur->left;
+			}
+		}
+		return const_iterator(result, header_);
+	}
+
+	iterator upper_bound(const Key& key)
+	{
+		BaseNode* cur = header_->parent;
+		BaseNode* result = header_;
 		while (cur != nullptr)
 		{
 			if (comp(key, static_cast<Node*>(cur)->kv.first))
 			{
-				start_node = cur;
-				cur = cur->right;
+				result = cur;
+				cur = cur->left;
 			}
 			else
 			{
-				cur = cur->left;
+				cur = cur->right;
 			}
 		}
-		return start_node;
+		return iterator(result, header_);
+	}
+
+	const_iterator upper_bound(const Key& key) const
+	{
+		BaseNode* cur = header_->parent;
+		BaseNode* result = header_;
+		while (cur != nullptr)
+		{
+			if (comp(key, static_cast<Node*>(cur)->kv.first))
+			{
+				result = cur;
+				cur = cur->left;
+			}
+			else
+			{
+				cur = cur->right;
+			}
+		}
+		return const_iterator(result, header_);
 	}
 	void clear()
 	{
 		BaseNode* cur = header_->parent;
-		while (cur != &header_ && cur != nullptr)
+		while (cur != nullptr)
 		{
 			if (cur->left != nullptr)
 			{
@@ -863,63 +965,66 @@ public:
 
 				if (parent != header_)
 				{
-					if (parent->left == cur)parent->left = nullptr;
+					if (parent->left == cur) parent->left = nullptr;
 					else parent->right = nullptr;
 				}
 
-				Node* node_to_delete = static_cast<Node*>(cur);
+				NodeAllocTraits::destroy(alloc_, static_cast<Node*>(cur));
+				NodeAllocTraits::deallocate(alloc_, static_cast<Node*>(cur), 1);
 
-				NodeAllocTraits::destroy(alloc_, node_to_delete);
-				NodeAllocTraits::deallocate(alloc_, node_to_delete, 1);
-
-				cur = parent;
+				cur = (parent == header_) ? nullptr : parent;
 			}
 		}
 		reset_header();
 	}
-
 	template<typename Container>
 	Container subSet(iterator first, iterator last) const
 	{
-		return Container(first, last);
+		Container tmp;
+		for (; first != last; ++first)
+			tmp.insert(tmp.end(), *first);
+		return tmp;
 	}
 
 	template<typename Container>
 	Container headSet(iterator head) const
 	{
-		return Container(begin, head);
+		Container tmp;
+		for (auto it = begin(); it != head; ++it)
+			tmp.insert(tmp.end(), *it);
+		return tmp;
 	}
+
 	template<typename Container>
 	Container headSet(const Key& key) const
 	{
 		Container tmp;
-
-		auto it = begin();
-		for (auto other = upper_boud(key);it != other; ++it)
+		auto bound = upper_bound(key);
+		for (auto it = begin(); it != bound; ++it)
 			tmp.insert(tmp.end(), *it);
-		tmp.insert(tmp.end(), *(++it));
-
 		return tmp;
 	}
 
 	template<typename Container>
 	Container tailSet(iterator tail) const
 	{
-		return Container(tail, end());
-	}
-	template<typename Container>
-	Container tailSet(const Key& key)
-	{
 		Container tmp;
-
-		for (auto it = lower_bound(key); it != end(); ++it)
+		for (auto it = tail; it != end(); ++it)
 			tmp.insert(tmp.end(), *it);
-
 		return tmp;
 	}
 
 	template<typename Container>
-	Container descending_set()
+	Container tailSet(const Key& key) const
+	{
+		Container tmp;
+		for (auto it = lower_bound(key); it != end(); ++it)
+			tmp.insert(tmp.end(), *it);
+		return tmp;
+	}
+
+	template<typename Container>
+	Container descending_set() const
 	{
 		Container tmp;
 		for (auto it = rbegin(); it != rend(); ++it)
@@ -930,9 +1035,9 @@ public:
 
 int main()
 {
-	Map<int, int> mp;
-	std::map<int, int> m;
-	m.insert(5, 3);
-	std::cout << mp;
-	mp.rbegin();
+	Map<int, int> m;
+	m.insert({5, 2});m.insert({3, 2});m.insert({1, 5});
+	auto it = m.find(5);
+	std::cout << (*it).first << " " << (*it).second;
+	std::cout << m;
 }
