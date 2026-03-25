@@ -20,7 +20,7 @@ std::vector<int> SCC(const std::vector<std::vector<int>>& adj)
 	std::vector<int> comp(n, -1);
 
 	auto dfs1 = [&](auto& dfs, int v)->void {
-		vis[v] = false;
+		vis[v] = true;
 		for (const int& to : adj[v])
 		{
 			if (!vis[to])
@@ -32,11 +32,11 @@ std::vector<int> SCC(const std::vector<std::vector<int>>& adj)
 	};
 
 	auto dfs2 = [&](auto& dfs, int v, int c)->void {
-		vis[v] = false;
+		vis[v] = true;
 		comp[v] = c;
 		for (const int& to : radj[v])
 		{
-			if (!vis[v])
+			if (!vis[to])
 			{
 				dfs(dfs, to, c);
 			}
@@ -51,8 +51,10 @@ std::vector<int> SCC(const std::vector<std::vector<int>>& adj)
 
 	int c = 0;
 
-	for(int i = 0; i < n; ++ i)
+	while(!order.empty())
 	{
+		int i = order.back();
+		order.pop_back();
 		if (!vis[i])
 		{
 			dfs2(dfs2, i, c++);
@@ -61,27 +63,28 @@ std::vector<int> SCC(const std::vector<std::vector<int>>& adj)
 	return comp;
 }
 
-void KosarjuExamples(int num_of_examples = 3)
+void kosarjuExamples(int num_of_examples = 3)
 {
-	std::cout << "SCC\n";
+	std::cout << "SCC:\n";
 
-	int i = 0;
-	while (i < num_of_examples)
+	for (int i = 0; i < num_of_examples; ++ i)
 	{
-		int n; std::cin >> n;
+		std::cout << "Size of vert and edges\n";
+		int n, m; std::cin >> n >> m;
 		std::vector<std::vector<int>> adj(n);
 		
-		for (int i = 0; i < n; ++i)
+		for (int j = 0; j < m; ++j)
 		{
+			std::cout << "Input vertexes of edge: ";
 			int u, v; std::cin >> u >> v;
 			--u; --v;
+			std::cout << '\n';
 			
 			adj[u].push_back(v);
-			adj[v].push_back(u);
 		}
 
 		std::vector<int> out = SCC(adj);
-		std::cout << "Example " << i++ + 1 << ":";
+		std::cout << "Example " << i + 1 << ":";
 		for (int& x : out)
 			std::cout << x << ' ';
 		std::cout << '\n';
@@ -89,8 +92,8 @@ void KosarjuExamples(int num_of_examples = 3)
 	std::cout << "...\n";
 }
 
-//10 Max Flow. Edmonds-Carp's Algorithm.
-int bfs(int t, int s, std::vector<int>& parent, std::vector<std::vector<int>>& cap, const std::vector<std::vector<int>>& adj)
+//10 Max Flow. Edmonds-Karp's Algorithm.
+int bfs(int s, int t, std::vector<int>& parent, std::vector<std::vector<int>>& cap, const std::vector<std::vector<int>>& adj)
 {
 	std::fill(parent.begin(), parent.end(), -1);
 	parent[s] = -2;
@@ -151,10 +154,13 @@ void maxFlowExamples(int num_of_examples = 3)
 
 		std::vector<std::vector<int>> adj(n);
 		std::vector<std::vector<int>> cap(n, std::vector<int>(n));
-		for (int i = 0; i < m; ++i)
+		for (int j = 0; j < m; ++j)
 		{
+			std::cout << "Input vertexes of edge and their cap: ";
 			int u, v, c; std::cin >> u >> v >> c;
 			--u; --v;
+			std::cout << '\n';
+
 			adj[u].push_back(v);
 			adj[v].push_back(u);
 			cap[u][v] += c;
@@ -172,7 +178,7 @@ void maxFlowExamples(int num_of_examples = 3)
 1 3 7
 3 4 8
 
-Ответ: Max Flow 1: 12
+Max Flow 1: 12
 
 Ввод:
 5 6
@@ -184,7 +190,7 @@ void maxFlowExamples(int num_of_examples = 3)
 3 4 3
 4 5 4
 
-Ответ: Max Flow 3: 5
+Max Flow 3: 5
 */
 
 //16 Finding Articular Points | Tarjan's Algorithm
@@ -192,22 +198,23 @@ std::vector<int> findArticulations(const std::vector<std::vector<int>>& adj)
 {
 	int n = adj.size();
 	int timer = 0;
-	int children = 0;
 
 	std::vector<int> tin(n, -1), low(n, -1);
-	std::vector<bool> vis(n, false), is_cut(n, true);
+	std::vector<bool> vis(n, false), is_cut(n, false);
 
 	//auto& self - to have opportunity to have recursion
 	auto dfs = [&](auto& self, int v, int p = -1) -> void {
 		vis[v] = true;
 		tin[v] = low[v] = timer++;
+		int children = 0;
+
 		for (int neighbor : adj[v])
 		{
 			if (neighbor == p)continue;
 
 			if (vis[neighbor])
 			{
-				low[neighbor] = std::min(low[neighbor], low[v]);
+				low[v] = std::min(low[v], tin[neighbor]);
 			}
 			else
 			{
@@ -221,13 +228,13 @@ std::vector<int> findArticulations(const std::vector<std::vector<int>>& adj)
 				children++;
 			}
 		}
-		if (p == -1 && children > 0)
+		if (p == -1 && children > 1)
 			is_cut[v] = true;
 	};
 
 	for (int i = 0; i < n; ++i)
 		if (!vis[i])
-			dfs(dfs, 0);
+			dfs(dfs, i);
 
 	std::vector<int> out;
 	for (int i = 0; i < n; ++i)
@@ -237,23 +244,34 @@ std::vector<int> findArticulations(const std::vector<std::vector<int>>& adj)
 	return out;
 }
 
-void ArtPointsExamples(int num_of_examples = 3)
+void artPointsExamples(int num_of_examples = 3)
 {
-	int i = 0;
-	while (i < num_of_examples)
+	for (int i = 0; i < num_of_examples; ++ i)
 	{
-		int n; std::cin >> n;
+		std::cout << "Input vertexes and edges of the graph:\n";
+		int n, m; std::cin >> n >> m;
 		std::vector<std::vector<int>> adj(n);
 		
-		for (int i = 0; i < n; ++i)
+		for (int i = 0; i < m; ++i)
 		{
+			std::cout << "Input vertexes of edge: ";
 			int u, v; std::cin >> u >> v;
 			--u; --v;
+			std::cout << '\n';
 			adj[u].push_back(v);
 			adj[v].push_back(u);
 		}
 
 		std::vector<int> out = findArticulations(adj);
+		std::cout << "Articulation points: ";
+		if (out.empty()) {
+			std::cout << "none";
+		} else {
+			for (int v : out)
+				std::cout << v + 1 << ' ';  // +1 т.к. вводите с единицы
+		}
+		std::cout << '\n';
+
 	}
 }
 
@@ -265,7 +283,6 @@ int main()
 	std::cout << "2 - Max Flow - Edmonds-Carp's Algorithm\n";
 	std::cout << "3 - Articulation Points - Tarjan's Algorithm\n";
 
-	std::cout << "4 - All Random Examples...\n";
 	
 	int n; std::cin >> n;
 	
@@ -274,19 +291,15 @@ int main()
 	switch (n)
 	{
 	case 1:
-
-		KosarjuExamples(cnt);
+		kosarjuExamples(cnt);
 		break;
 
 	case 2:
+		maxFlowExamples(cnt);
 		break;
-
 	case 3:
-		
-		break;
-
-	case 4:
-		
+		artPointsExamples(cnt);
 		break;
 	}
+	return 0;
 }

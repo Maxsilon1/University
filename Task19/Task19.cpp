@@ -29,10 +29,10 @@ private:
 		Node(Args&&... val): kv(std::forward<Args>(val)...) {}
 	};
 	
-	using AllocTraits = std::allocator_traits<Alloc>;
 	using NodeAlloc = typename std::allocator_traits<Alloc>::template rebind_alloc<Node>;
 	using BaseNodeAlloc = typename std::allocator_traits<Alloc>::template rebind_alloc<BaseNode>;
 
+	using AllocTraits = std::allocator_traits<Alloc>;
 	using NodeAllocTraits = std::allocator_traits<NodeAlloc>;
 	using BaseNodeAllocTraits = std::allocator_traits<BaseNodeAlloc>;
 
@@ -213,6 +213,8 @@ public:
 
 		friend bool operator==(const base_iterator& first, const base_iterator& second) { return first.ptr == second.ptr; }
 		friend bool operator!=(const base_iterator& first, const base_iterator& second) { return first.ptr != second.ptr; }
+	
+		BaseNode* get_node() { return ptr; }
 	};
 
 	using iterator = base_iterator<false>;
@@ -733,7 +735,7 @@ public:
 		iterator next = pos;
 		++next;
 
-		BaseNode* cur = pos.get_node(); // нужен getter в итераторе (см. ниже)
+		BaseNode* cur = pos.get_node(); // нужен getter в итераторе
 		BaseNode* del_node = cur;
 		BaseNode* x = nullptr;
 		BaseNode* x_parent = nullptr;
@@ -820,11 +822,7 @@ public:
 		{
 			if (x != nullptr)
 				EraseFix(x);
-			else if (x_parent != nullptr && x_parent != header_)
-			{
-				// Создаём "фантомный" чёрный nullptr — сложный случай
-				// Упрощённый вариант: просто фиксим от parent
-			}
+			
 		}
 
 		// Если дерево стало пустым
@@ -1038,6 +1036,6 @@ int main()
 	Map<int, int> m;
 	m.insert({5, 2});m.insert({3, 2});m.insert({1, 5});
 	auto it = m.find(5);
-	std::cout << (*it).first << " " << (*it).second;
+	m.erase(m.find(5));
 	std::cout << m;
 }
