@@ -1,7 +1,7 @@
 ﻿#include <iostream>
 #include <unordered_map>
 
-template<typename Key, typename Value,  class Hasher, class Alloc = std::allocator<std::pair<const Key, Value>>>
+template<typename Key, typename Value,  class Hasher = std::hash<Key>, class Alloc = std::allocator<std::pair<const Key, Value>>>
 class HashMap
 {
 public:
@@ -11,6 +11,7 @@ private:
 	{
 		BaseNode* next_;//In buckets it pointed to ptr before begin
 
+		BaseNode() : next_(nullptr) {}
 		BaseNode(BaseNode* next) : next_(next) {}
 	};
 
@@ -22,25 +23,19 @@ private:
 		Node(BaseNode* next, size_t hash, const Key& key, const Value& value) : BaseNode(next), hash_(hash_), data(key, value) {}
 	};
 	
-	using NodePtr = typename std::allocator_traits<Alloc>::template rebind_alloc<Node*>;
 	using NodeAlloc = typename std::allocator_traits<Alloc>::template rebind_alloc<Node>;
-	using BaseNodePtr = typename std::allocator_traits<Alloc>::template rebind_alloc<BaseNode*>;
-	using BaseNodeAlloc = typename std::allocator_traits<Alloc>::template rebind_alloc<Node*>;
+	using BaseNodeAlloc = typename std::allocator_traits<Alloc>::template rebind_alloc<BaseNode>;
 
 	using AllocTraits = std::allocator_traits<Alloc>;
-	using NodePtrTraits = std::allocator_traits<NodePtr>;
 	using NodeAllocTraits = std::allocator_traits<NodeAlloc>;
-	using BaseNodePtrTraits = std::allocator_traits<BaseNodePtr>;
 	using BaseNodeAllocTraits = std::allocator_traits<BaseNodeAlloc>;
 
 	Alloc alloc_;
-	NodePtr ptr_node_alloc_;
 	NodeAlloc node_alloc_;
-	BaseNodePtr ptr_base_node_alloc_;
 	BaseNodeAlloc base_node_alloc_;
 
 	BaseNode* buckets_;
-	BaseNode* before_begin_;
+	BaseNode before_begin_;//pointer to 0 bucket
 	Hasher hasher_;
 
 	size_t size_;
@@ -57,7 +52,7 @@ private:
 		}
 		catch (...)
 		{
-			NodeAllocTraits::deallocate(new_node, 1);
+			NodeAllocTraits::deallocate(node_alloc_, new_node, 1);
 			throw;
 		}
 		return new_node;
@@ -75,7 +70,7 @@ private:
 	private:
 		BaseNode* ptr;
 	public:
-		base_iterator(Node* ptr): ptr(ptr) {}
+		base_iterator(BaseNode* ptr): ptr(ptr) {}
 		base_iterator(const base_iterator& other): ptr(other.ptr) {}
 
 		base_iterator& operator++()
@@ -96,11 +91,19 @@ private:
 		friend bool operator==(const base_iterator& first, const base_iterator& second) { return first.ptr == second.ptr; }
 		friend bool operator!=(const base_iterator& first, const base_iterator& second) { return first.ptr != second.ptr; }
 
-		Node* get() { return static_cast<Node*>(ptr); }
+		Node* get_ptr() { return static_cast<Node*>(ptr); }
 	};
 
 	using iterator = base_iterator<false>;
 	using const_iterator = base_iterator<true>;
+
+	iterator begin() { return iterator{ before_begin_, before_begin_.next_ };}
+	const_iterator begin() const {return const_iterator{ before_begin_, before_begin_.next_ }; }
+	const_iterator cbegin() const { return const_iterator{ before_begin_, before_begin_.next_ }; }
+
+	iterator end() { return iterator{ nullptr }; }
+	const_iterator end() const { return const_iterator{ nullptr }; }
+	const_iterator cend() const { return const_iterator{ nullptr }; }
 
 	size_t getBucketIndex(const Key& key) const
 	{
@@ -111,147 +114,166 @@ private:
 	{
 		if (new_count_ <= buckets_count_)return;
 
-		BaseNode* new_buckets = BaseNodeAllocTraits(base_node_alloc, new_count_);
+		BaseNode* new_buckets = BaseNodeAllocTraits::allocate(base_node_alloc_, new_count_);
 
-		BaseNode* cur = before_begin_->next_;
-		before_begin_->next_ = nullptr;
+		BaseNode* cur = before_begin_.next_;
+		before_begin_.next_ = nullptr;
 		
 		while (cur != nullptr)
 		{
-			Node* next_node = cur->next_;
+			BaseNode* next_node = cur->next_;
 
-			Node* node = static_cast<Node*>(current);
-			size_t new_idx = node->hash_ % buckets_count_;
+			Node* node = static_cast<Node*>(cur);
+			size_t new_idx = node->hash_ % new_count_;
 
-			node_->next = new_bucket[new_idx];
-			new_buckets[new_idx] = node_;
+			node->next_= new_buckets[new_idx].next_;
+			new_buckets[new_idx].next_ = node;
 
 			cur = next_node;
 		}
-		BaseNodeAlloc::destroy(buckets_);
+
+		BaseNode* tail = &before_begin_;
+		for (size_t i = 0; i < new_count_; ++i)
+		{
+			if (new_buckets[i].next_ != nullptr)
+			{
+				tail->next_ = new_buckets[i].next_;
+
+				while (tail->next_ != nullptr)
+				{
+					Node* next_node = static_cast<Node*>(tail->next_);
+					if (next_node->hash_ % new_count_ != i)
+						break;
+					tail = tail->next_;
+				}
+			}
+		}
+		
+		BaseNodeAllocTraits::destroy(base_node_alloc_, buckets_);
 		buckets_ = new_buckets;
 		buckets_count_ = new_count_;
 	}
 
 public:
+	HashMap():buckets_(nullptr), size_(0), buckets_count_(0), hasher_() {}
+
 	void insert(const Key& key, const Value& val)
 	{
 		size_t hash = hasher_(key);
-		BaseNode* before_first_ = buckets_[(hash % buckets_count_)];
-		before_first_->next_->hash_ = hash;
+		BaseNode* node_before = &buckets_[hash % buckets_count_];
 
 		Node* new_node = alloc_node(
 			std::piecewise_construct,
 			std::forward_as_tuple(key),
 			std::forward_as_tuple(val)
 		);;
-		new_node->next = before_first_->next;
-		before_first_->next_ = new_node;
+		new_node->next_ = node_before->next_;
+		node_before->next_ = new_node;
+		new_node->hash_ = hash;
 		
-		if (size_ / buckets_ > max_load_factor_)
+		if (static_cast<float>(size_) / static_cast<float>(buckets_count_) > max_load_factor_)
 		{
 			rehash(buckets_count_ * 2);//I need to add more cooler ver of this maybe later
 		}
 	}
 	void insert(const std::pair<Key, Value>& val)
 	{
-		size_t idx;
-		try
-		{
-			idx = hasher_(val.first);
-		}
-		catch (...)
-		{
-			throw;
-		}
-		
-		Node* cur = buckets_[idx];
-		if (cur == nullptr)
-			++buckets_count_;
-		else
-			while (cur != nullptr)
-				cur = cur->next;
-		
-		cur = alloc_node(
-			std::piecewise_construct,
-			std::forward_as_tuple(val.first),
-			std::forward_as_tuple(val.second)
-		);
-
-		++size_;
-		if (size_ / buckets_count_ > max_load_factor_)
-		{
-			rehash(2 * size_);
-		}
+		insert(val.first, val.second);
 	}
 	void insert(std::pair<Key, Value>&& val)
 	{
-		size_t idx;
-		try {
-			idx = hasher_(val.first);
-		}
-		catch (...)
-		{
-			throw;
-		}
-
-		Node* cur = buckets_[idx];
-		if (cur == nullptr)
-			++buckets_count_;
-		else
-			while (cur != nullptr)
-				cur = cur->next;
-
-		cur = alloc_node(
+		size_t hash = hasher_(val.first);
+		BaseNode* node_before = buckets_[hash % buckets_count_];
+		
+		Node* new_node = alloc_node(
 			std::piecewise_construct,
 			std::forward_as_tuple(val.first),
 			std::forward_as_tuple(val.second)
 		);
 
+		new_node->next_ = node_before->next_;
+		node_before->next_ = new_node;
+		new_node->hash_ = hash;
+
 		++size_;
-		if (size_ / buckets_count_ > max_load_factor_)
+		if (static_cast<float>(size_) / static_cast<float>(buckets_count_) > max_load_factor_)
 		{
-			rehash(2 * size_);
+			rehash(2 * buckets_count_);
 		}
 	}
-	
-	Value& operator[](const Key& key)
+
+	void erase(const Key& key) 
 	{
 		size_t hash = hasher_(key);
-		size_t idx = hash % buckets_;
+		BaseNode* cur = &buckets_[hash % buckets_count_];
+		bool outOfBucket = false;
+		while (cur->next_ != nullptr)
+		{
+			Node* next = static_cast<Node*>(cur->next_);
+			if (next->hash_ % buckets_count_ != hash % buckets_count_) {
+				outOfBucket = true; break;
+			}
+			if (next->data.first == key) break;
+			cur = cur->next_;
+		}
+		if (cur == nullptr || outOfBucket)return;
 
+		Node* node_to_del = static_cast<Node*>(cur->next_);
+		cur->next_ = cur->next_->next_;
 
+		NodeAllocTraits::destroy(node_alloc_, node_to_del);
+		NodeAllocTraits::deallocate(node_alloc_, node_to_del, 1);
+		--size_;
 	}
-
-	void erase(const Key& key) {}
-	void erase(iterator first)
+	//Return next iterator after delete
+	iterator erase(iterator it)
 	{
+		BaseNode* cur = it.get_ptr();
+		for(;iterator(cur->next_) != it; cur = cur->next_)
+		{}
 
+		Node* node_to_del = static_cast<Node*>(cur->next_);
+		cur->next_ = cur->next_->next_;
+
+		NodeAllocTraits::destroy(node_alloc_, node_to_del);
+		NodeAllocTraits::deallocate(node_alloc_, node_to_del, 1);
+		--size_;
 	}
-	void erase(iterator first, iterator last) {}
+	void erase(iterator first, iterator last) 
+	{
+		while (first != last)
+		{
+			first = erase(first);
+		}
+	}
 
 	bool contains(const Key& key) 
 	{
-		return buckets_[hasher_(key)]->next_ != nullptr;
+		return buckets_[hasher_(key)] != nullptr;
 	}
 
 	void clear()
 	{
-		Node* prev;
-		for (auto it = this->begin(); it != this->end(); ++it)
+		
+		for (size_t i = 0; i < buckets_count_; ++i)
 		{
-			NodeAllocTraits::destroy(node_alloc_, prev);
-			prev = static_cast<Node*>(it.get());
+			BaseNode* cur = buckets_[i].next_;
+			while (cur)
+			{
+				cur = cur->next_;
+				Node* n = static_cast<Node*>(cur);
+				NodeAllocTraits::destroy(node_alloc_, n);
+				NodeAllocTraits::deallocate(node_alloc_, n, 1);
+			}
+			buckets_[i]->next_ = nullptr;
 		}
-		NodeAllocTraits::destroy(node_alloc_, prev);
-
-		BaseNodeAllocTraits::deallocate(base_node_alloc_, size_);
+		size_ = 0;
 	}
 
 	template<typename Container>
 	Container entrySet()
 	{
-		Container out(it.begin(), it.end());
+		Container out(begin(), end());
 		return out;
 	}
 	template<typename Container>
@@ -271,27 +293,41 @@ public:
 	{
 		size_t hash = hasher_(key);
 		size_t idx = hash % buckets_count_;
-		if (buckets_[idx]->next_ != nullptr)
+		
+		BaseNode* cur = buckets_[idx].next_;
+
+		while (cur != nullptr && static_cast<Node*>(cur)->hash_ % buckets_count_ == idx
+			&& static_cast<Node*>(cur)->data.first != key)
 		{
-			BaseNode* cur = buckets_[]->next_;
-			while (cur != nullptr || static_cast<Node*>(cur)->hash_ == idx || static_cast<Node*>(cur)->first != key)
-			{
-				cur = cur->next_;
-			}
-			if (static_cast<Node*>(cur)->first == key)
-			{
-				return {true, iterator{cur}};
-			}
+			cur = cur->next_;
 		}
-		return {false, iterator{end()}};
-			
+
+		if (cur != nullptr && static_cast<Node*>(cur)->hash_ % buckets_count_ == idx &&
+			static_cast<Node*>(cur)->data.first == key)
+			return { true, iterator{cur} };
+
+		return {false, end()};
+	}
+};
+
+class Hash {
+public:
+	size_t operator()(const std::string& msg) const
+	{
+		long long m = 31, n = 1'000'000'000, val = msg[0] * m;
+		for (size_t i = 1; i < msg.length(); ++i)
+			val = (val * m + msg[i] * m) % n;
+		return static_cast<size_t>(val);
 	}
 };
 
 int main()
 {
-	std::unordered_map<int, int> um;
-	auto it = um.begin();
-	auto it1 = um.erase(it);
-	std::cout << it1->first;
+	HashMap<int, int> hp;
+	hp.insert(1, 5);
+	hp.insert(2, 7);
+	hp.insert(3, 6);
+	hp.erase(1);
+	hp.erase(2);
+	std::cout << hp.get(3).first << ' ' << hp.get(2).first;
 }
