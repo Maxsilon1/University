@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel = "stylesheet" href = "0. mainPage/testWeb.css">
+</head><head></head>
+<body>
+    <header>
+        <nav>
+            <img id = "icon">
+            <h2 style = "text-align: center;color:white;">MAIN PAGE</h2>
+        </nav>
+        
+    </header>
+    <div id = "cards">
+            <a class = "main-cards">
+                <h3>Первая лабораторная</h3>
+                <hr>
+                <h5>В данной лабораторной нужно сделать батарейку</h5>
+            </a>
+            <a class = "main-cards">
+                <h3>Вторая лабораторная</h3>
+                <hr>
+                <h5>В данной лабораторной нужно сделать </h5>
+            </a>
+            <a class = "main-cards">
+                <h3>Третья лабораторная</h3>
+                <hr>
+                <h5>В данной лабораторной нужно подобрать градиент, 
+                    шрифт и фоновые картинки для сайта</h5>
+            </a>
+        </div>
+    <div></div>
+</body>
+</html>
